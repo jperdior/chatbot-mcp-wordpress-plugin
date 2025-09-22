@@ -1,11 +1,11 @@
 <?php
 /*
 Plugin Name: SupaChat
-Plugin URI: https://supa-chat-for-woocommerce.com
+Plugin URI: https://supa-chat.com
 Description: Automatically integrate your site with SupaChat AI chatbots. Provides seamless integration for enhanced customer support.
 Version: 1.0.0
 Author: SupaChat
-Author URI: https://supa-chat-for-woocommerce.com
+Author URI: https://github.com/jperdior
 Text Domain: supa-chat-for-woocommerce
 Requires at least: 5.6
 Requires PHP: 7.4
