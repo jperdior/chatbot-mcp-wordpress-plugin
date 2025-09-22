@@ -55,6 +55,7 @@ class SCWC_WooCommerce_API {
             
             // Insert into WooCommerce API keys table
             $table_name = $wpdb->prefix . 'woocommerce_api_keys';
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery -- Required for WooCommerce API key management
             $result = $wpdb->insert($table_name, $key_data);
             
             if ($result === false) {
@@ -79,7 +80,7 @@ class SCWC_WooCommerce_API {
             );
             
         } catch (Exception $e) {
-            error_log('SCWC API Key Generation Error: ' . $e->getMessage());
+            scwc_debug_log('SCWC API Key Generation Error: ' . $e->getMessage());
             return array(
                 'success' => false,
                 'message' => 'An error occurred while generating API keys'
@@ -98,6 +99,7 @@ class SCWC_WooCommerce_API {
         
         try {
             $table_name = $wpdb->prefix . 'woocommerce_api_keys';
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for WooCommerce API key deletion
             $result = $wpdb->delete($table_name, array('key_id' => $key_id), array('%d'));
             
             if ($result !== false) {
@@ -108,7 +110,7 @@ class SCWC_WooCommerce_API {
             return false;
             
         } catch (Exception $e) {
-            error_log('SCWC API Key Deletion Error: ' . $e->getMessage());
+            scwc_debug_log('SCWC API Key Deletion Error: ' . $e->getMessage());
             return false;
         }
     }
@@ -123,10 +125,21 @@ class SCWC_WooCommerce_API {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'woocommerce_api_keys';
-        $key_data = $wpdb->get_row(
-            $wpdb->prepare("SELECT * FROM {$table_name} WHERE key_id = %d", $key_id),
-            ARRAY_A
-        );
+        // Check cache first
+        $cache_key = 'scwc_api_key_' . $key_id;
+        $key_data = wp_cache_get($cache_key, 'scwc_api_keys');
+        
+        if (false === $key_data) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for WooCommerce API key retrieval
+            $key_data = $wpdb->get_row(
+                $wpdb->prepare("SELECT * FROM `{$wpdb->prefix}woocommerce_api_keys` WHERE key_id = %d", $key_id),
+                ARRAY_A
+            );
+            
+            if ($key_data) {
+                wp_cache_set($cache_key, $key_data, 'scwc_api_keys', 300); // Cache for 5 minutes
+            }
+        }
         
         return $key_data;
     }
@@ -145,16 +158,27 @@ class SCWC_WooCommerce_API {
         }
         
         $table_name = $wpdb->prefix . 'woocommerce_api_keys';
-        $keys = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT key_id, description, permissions, truncated_key, last_access 
-                 FROM {$table_name} 
-                 WHERE user_id = %d 
-                 ORDER BY key_id DESC",
-                $current_user->ID
-            ),
-            ARRAY_A
-        );
+        // Check cache first
+        $cache_key = 'scwc_user_api_keys_' . $current_user->ID;
+        $keys = wp_cache_get($cache_key, 'scwc_api_keys');
+        
+        if (false === $keys) {
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for WooCommerce API key listing
+            $keys = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT key_id, description, permissions, truncated_key, last_access 
+                     FROM `{$wpdb->prefix}woocommerce_api_keys` 
+                     WHERE user_id = %d 
+                     ORDER BY key_id DESC",
+                    $current_user->ID
+                ),
+                ARRAY_A
+            );
+            
+            if ($keys) {
+                wp_cache_set($cache_key, $keys, 'scwc_api_keys', 300); // Cache for 5 minutes
+            }
+        }
         
         return $keys ?: array();
     }
@@ -218,6 +242,7 @@ class SCWC_WooCommerce_API {
         global $wpdb;
         
         $table_name = $wpdb->prefix . 'woocommerce_api_keys';
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for updating API key access time
         $wpdb->update(
             $table_name,
             array('last_access' => current_time('mysql')),
@@ -225,6 +250,9 @@ class SCWC_WooCommerce_API {
             array('%s'),
             array('%d')
         );
+        
+        // Clear cache for this key
+        wp_cache_delete('scwc_api_key_' . $key_id, 'scwc_api_keys');
     }
     
     /**
@@ -235,7 +263,7 @@ class SCWC_WooCommerce_API {
      * @param int $user_id User ID
      */
     private function log_api_key_creation($key_id, $description, $user_id) {
-        error_log(sprintf(
+        scwc_debug_log(sprintf(
             'SCWC: API Key created - ID: %d, Description: %s, User: %d',
             $key_id,
             $description,
@@ -249,7 +277,7 @@ class SCWC_WooCommerce_API {
      * @param int $key_id The deleted key ID
      */
     private function log_api_key_deletion($key_id) {
-        error_log(sprintf(
+        scwc_debug_log(sprintf(
             'SCWC: API Key deleted - ID: %d',
             $key_id
         ));
@@ -280,7 +308,8 @@ class SCWC_WooCommerce_API {
         // Check database table
         global $wpdb;
         $table_name = $wpdb->prefix . 'woocommerce_api_keys';
-        $table_exists = $wpdb->get_var("SHOW TABLES LIKE '$table_name'") === $table_name;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for checking table existence
+        $table_exists = $wpdb->get_var($wpdb->prepare("SHOW TABLES LIKE %s", $table_name)) === $table_name;
         
         if (!$table_exists) {
             return array(
@@ -293,5 +322,71 @@ class SCWC_WooCommerce_API {
             'success' => true,
             'message' => 'WooCommerce API is properly configured'
         );
+    }
+    
+    /**
+     * Clean up orphaned API keys for a specific chatbot integration
+     * 
+     * @param string $chatbot_id The chatbot ID
+     * @return array Result array
+     */
+    public function cleanup_orphaned_keys($chatbot_id) {
+        scwc_debug_log(' Cleaning up orphaned API keys for chatbot: ' . $chatbot_id);
+        
+        try {
+            global $wpdb;
+            $current_user = wp_get_current_user();
+            
+            if (!$current_user || !$current_user->ID) {
+                return array(
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                );
+            }
+            
+            // Look for API keys that might be related to this chatbot
+            // We'll search for keys with descriptions containing the chatbot ID or SupaChat
+            $table_name = $wpdb->prefix . 'woocommerce_api_keys';
+            
+            // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for orphaned key cleanup
+            $orphaned_keys = $wpdb->get_results(
+                $wpdb->prepare(
+                    "SELECT key_id, description FROM `{$wpdb->prefix}woocommerce_api_keys` 
+                     WHERE user_id = %d 
+                     AND (description LIKE %s OR description LIKE %s OR description LIKE %s)
+                     ORDER BY key_id DESC",
+                    $current_user->ID,
+                    '%' . $wpdb->esc_like($chatbot_id) . '%',
+                    '%SupaChat%',
+                    '%scwc_%'
+                ),
+                ARRAY_A
+            );
+            
+            $cleanup_count = 0;
+            if ($orphaned_keys) {
+                foreach ($orphaned_keys as $key) {
+                    $delete_result = $this->delete_api_key($key['key_id']);
+                    if ($delete_result) {
+                        $cleanup_count++;
+                        scwc_debug_log(' Deleted orphaned API key: ' . $key['description']);
+                    }
+                }
+            }
+            
+            scwc_debug_log(" Cleaned up {$cleanup_count} orphaned API keys");
+            return array(
+                'success' => true,
+                'message' => "Cleaned up {$cleanup_count} orphaned API keys",
+                'cleanup_count' => $cleanup_count
+            );
+            
+        } catch (Exception $e) {
+            scwc_debug_log(' Orphaned key cleanup failed: ' . $e->getMessage());
+            return array(
+                'success' => false,
+                'message' => 'API key cleanup failed: ' . $e->getMessage()
+            );
+        }
     }
 }

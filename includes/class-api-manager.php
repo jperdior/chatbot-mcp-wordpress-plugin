@@ -15,8 +15,17 @@ class SCWC_API_Manager {
     private $chatbot_service_url;
     
     public function __construct() {
-        $this->user_service_url = defined('SCWC_USER_SERVICE_URL') ? SCWC_USER_SERVICE_URL : 'http://localhost:9091/api/v1';
-        $this->chatbot_service_url = defined('SCWC_CHATBOT_SERVICE_URL') ? SCWC_CHATBOT_SERVICE_URL : 'http://localhost:9092/api/v1';
+        // Use constants as defaults (production URLs)
+        $this->user_service_url = defined('SCWC_USER_SERVICE_URL') ? SCWC_USER_SERVICE_URL : 'https://user.supa-chat.com/api/v1';
+        $this->chatbot_service_url = defined('SCWC_CHATBOT_SERVICE_URL') ? SCWC_CHATBOT_SERVICE_URL : 'https://chatbot.supa-chat.com/api/v1';
+        
+        // Ensure URLs don't have trailing slashes
+        $this->user_service_url = rtrim($this->user_service_url, '/');
+        $this->chatbot_service_url = rtrim($this->chatbot_service_url, '/');
+        
+        scwc_debug_log('SCWC: API Manager initialized with URLs:');
+        scwc_debug_log('SCWC: User Service URL: ' . $this->user_service_url);
+        scwc_debug_log('SCWC: Chatbot Service URL: ' . $this->chatbot_service_url);
     }
     
     /**
@@ -63,10 +72,25 @@ class SCWC_API_Manager {
                 update_option('scwc_refresh_token', $data['refresh_token']);
             }
             
-            // Get user details
+            // Get user details from API
             $user_details = $this->get_user_details($data['token']);
             if ($user_details['success']) {
                 update_option('scwc_user_data', $user_details['data']);
+            } else {
+                // Fallback: extract user data from JWT token
+                scwc_debug_log('SCWC: Failed to get user details from API, trying JWT extraction');
+                $jwt_payload = $this->decode_jwt_payload($data['token']);
+                if ($jwt_payload) {
+                    $user_data = array(
+                        'id' => $jwt_payload['ID'] ?? null,
+                        'email' => $jwt_payload['email'] ?? null,
+                        'name' => $jwt_payload['name'] ?? null,
+                        'roles' => $jwt_payload['roles'] ?? array()
+                    );
+                    update_option('scwc_user_data', $user_data);
+                    scwc_debug_print($user_data, 'User data extracted from JWT during login:');
+                    $user_details = array('success' => true, 'data' => $user_data);
+                }
             }
             
             return array(
@@ -99,15 +123,22 @@ class SCWC_API_Manager {
         // We'll encode the WordPress callback in the redirect parameter
         $callback_url = 'wordpress:' . base64_encode($wordpress_callback);
         
-        // For Google OAuth, we need to use the host-accessible URL since Google redirects the browser
-        // The browser runs on the host, not in the container network
+        // For Google OAuth, we need to use the production URL since Google redirects the browser
         // Note: Google OAuth routes are at root level (/auth/google/login), not under /api/v1
-        $google_oauth_base_url = 'http://local.user.com:8000';
-        $url = $google_oauth_base_url . '/auth/google/login?redirect=' . urlencode($callback_url);
+        $google_oauth_base_url = 'https://user.supa-chat.com';
         
-        error_log('SCWC: Google login URL: ' . $url);
-        error_log('SCWC: WordPress callback: ' . $wordpress_callback);
-        error_log('SCWC: Encoded callback: ' . $callback_url);
+        // Add parameters to force account selection and prevent caching
+        $params = array(
+            'redirect' => $callback_url,
+            'prompt' => 'select_account',  // Force account selection screen
+            'access_type' => 'offline'     // Request offline access
+        );
+        
+        $url = $google_oauth_base_url . '/auth/google/login?' . http_build_query($params);
+        
+        scwc_debug_log('SCWC: Google login URL: ' . $url);
+        scwc_debug_log('SCWC: WordPress callback: ' . $wordpress_callback);
+        scwc_debug_log('SCWC: Encoded callback: ' . $callback_url);
         
         return array(
             'success' => true,
@@ -122,7 +153,7 @@ class SCWC_API_Manager {
      * @return array Result array with tokens
      */
     public function handle_google_callback($code) {
-        error_log('SCWC: Handling Google callback with code: ' . substr($code, 0, 10) . '...');
+        scwc_debug_log('SCWC: Handling Google callback with code: ' . substr($code, 0, 10) . '...');
         
         // The Google callback from your service will redirect with tokens in URL
         // We'll handle this differently - the service redirects with tokens as URL params
@@ -142,7 +173,7 @@ class SCWC_API_Manager {
      * @return array Result array
      */
     public function store_google_tokens($token, $refresh_token) {
-        error_log('SCWC: Storing Google OAuth tokens');
+        scwc_debug_log('SCWC: Storing Google OAuth tokens');
         
         // Store tokens
         update_option('scwc_user_token', $token);
@@ -181,7 +212,7 @@ class SCWC_API_Manager {
         }
         
         $url = $this->user_service_url . '/refresh-token';
-        error_log('SCWC: Refreshing token at: ' . $url);
+        scwc_debug_log('SCWC: Refreshing token at: ' . $url);
         
         $body = json_encode(array(
             'refresh_token' => $refresh_token
@@ -200,7 +231,7 @@ class SCWC_API_Manager {
         
         if (is_wp_error($response)) {
             $error_msg = 'Token refresh failed: ' . $response->get_error_message();
-            error_log('SCWC: ' . $error_msg);
+            scwc_debug_log('SCWC: ' . $error_msg);
             return array(
                 'success' => false,
                 'message' => $error_msg
@@ -211,7 +242,7 @@ class SCWC_API_Manager {
         $response_body = wp_remote_retrieve_body($response);
         $data = json_decode($response_body, true);
         
-        error_log('SCWC: Token refresh response code: ' . $response_code);
+        scwc_debug_log('SCWC: Token refresh response code: ' . $response_code);
         
         if ($response_code === 200 && isset($data['token'])) {
             // Store new tokens
@@ -220,7 +251,7 @@ class SCWC_API_Manager {
                 update_option('scwc_refresh_token', $data['refresh_token']);
             }
             
-            error_log('SCWC: Token refreshed successfully');
+            scwc_debug_log('SCWC: Token refreshed successfully');
             return array(
                 'success' => true,
                 'data' => array(
@@ -230,7 +261,7 @@ class SCWC_API_Manager {
             );
         } else {
             $error_message = isset($data['error']) ? $data['error'] : 'Token refresh failed';
-            error_log('SCWC: Token refresh failed: ' . $error_message);
+            scwc_debug_log('SCWC: Token refresh failed: ' . $error_message);
             return array(
                 'success' => false,
                 'message' => $error_message
@@ -306,29 +337,47 @@ class SCWC_API_Manager {
      * @return array Result array with chatbots data
      */
     public function get_chatbots() {
+        scwc_debug_log('SCWC: API Manager get_chatbots() called');
+        
         $token = get_option('scwc_user_token');
         if (!$token) {
-            error_log('SCWC: No token found for get_chatbots');
+            scwc_debug_log('SCWC: No token found for get_chatbots');
             return array(
                 'success' => false,
                 'message' => 'Not logged in'
             );
         }
         
+        scwc_debug_log('SCWC: Token found, length: ' . strlen($token));
+        scwc_debug_log('SCWC: Token preview: ' . substr($token, 0, 20) . '...');
+        
+        // Check if user is logged in
+        if (!$this->is_logged_in()) {
+            scwc_debug_log('SCWC: User not logged in according to is_logged_in()');
+            return array(
+                'success' => false,
+                'message' => 'User not logged in'
+            );
+        }
+        
+        scwc_debug_log('SCWC: User is logged in, fetching chatbots');
+        
         // First attempt
         $result = $this->fetch_chatbots_with_token($token);
+        scwc_debug_print($result, 'First fetch attempt result:');
         
         // If we get a 401, try to refresh the token and retry
         if (!$result['success'] && isset($result['status_code']) && $result['status_code'] === 401) {
-            error_log('SCWC: Got 401, attempting token refresh');
+            scwc_debug_log('SCWC: Got 401, attempting token refresh');
             $refresh_result = $this->refresh_token();
             
             if ($refresh_result['success']) {
                 $new_token = $refresh_result['data']['token'];
-                error_log('SCWC: Token refreshed, retrying chatbots fetch');
+                scwc_debug_log('SCWC: Token refreshed, retrying chatbots fetch');
                 $result = $this->fetch_chatbots_with_token($new_token);
+                scwc_debug_print($result, 'Retry fetch result:');
             } else {
-                error_log('SCWC: Token refresh failed: ' . $refresh_result['message']);
+                scwc_debug_log('SCWC: Token refresh failed: ' . $refresh_result['message']);
                 return array(
                     'success' => false,
                     'message' => 'Authentication failed: ' . $refresh_result['message']
@@ -336,6 +385,7 @@ class SCWC_API_Manager {
             }
         }
         
+        scwc_debug_print($result, 'Final get_chatbots result:');
         return $result;
     }
     
@@ -347,7 +397,16 @@ class SCWC_API_Manager {
      */
     private function fetch_chatbots_with_token($token) {
         $url = $this->chatbot_service_url . '/chatbots';
-        error_log('SCWC: Fetching chatbots from: ' . $url);
+        scwc_debug_log('SCWC: Fetching chatbots from: ' . $url);
+        scwc_debug_log('SCWC: Using token (first 50 chars): ' . substr($token, 0, 50) . '...');
+        
+        // Decode JWT to see user info
+        $jwt_payload = $this->decode_jwt_payload($token);
+        if ($jwt_payload) {
+            scwc_debug_log('SCWC: JWT payload - user_id: ' . ($jwt_payload['user_id'] ?? 'not found') . ', email: ' . ($jwt_payload['email'] ?? 'not found'));
+        } else {
+            scwc_debug_log('SCWC: Failed to decode JWT payload');
+        }
         
         $args = array(
             'headers' => array(
@@ -361,7 +420,7 @@ class SCWC_API_Manager {
         
         if (is_wp_error($response)) {
             $error_msg = 'Failed to fetch chatbots: ' . $response->get_error_message();
-            error_log('SCWC: Chatbots fetch error: ' . $error_msg);
+            scwc_debug_log('SCWC: Chatbots fetch error: ' . $error_msg);
             return array(
                 'success' => false,
                 'message' => $error_msg
@@ -370,8 +429,8 @@ class SCWC_API_Manager {
         
         $response_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
-        error_log('SCWC: Chatbots response code: ' . $response_code);
-        error_log('SCWC: Chatbots response body: ' . $response_body);
+        scwc_debug_log('SCWC: Chatbots response code: ' . $response_code);
+        scwc_debug_log('SCWC: Chatbots response body: ' . $response_body);
         
         $data = json_decode($response_body, true);
         
@@ -401,6 +460,48 @@ class SCWC_API_Manager {
     }
     
     /**
+     * Decode JWT token to extract user information
+     * 
+     * @param string $token JWT token
+     * @return array|null Decoded payload or null if invalid
+     */
+    private function decode_jwt_payload($token) {
+        if (empty($token)) {
+            return null;
+        }
+        
+        // Split the JWT token into parts
+        $parts = explode('.', $token);
+        if (count($parts) !== 3) {
+            scwc_debug_log('SCWC: Invalid JWT token format');
+            return null;
+        }
+        
+        // Decode the payload (second part)
+        $payload = $parts[1];
+        
+        // Add padding if needed for base64 decoding
+        $payload .= str_repeat('=', (4 - strlen($payload) % 4) % 4);
+        
+        // Decode from base64
+        $decoded = base64_decode($payload);
+        if ($decoded === false) {
+            scwc_debug_log('SCWC: Failed to decode JWT payload');
+            return null;
+        }
+        
+        // Parse JSON
+        $data = json_decode($decoded, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            scwc_debug_log('SCWC: Failed to parse JWT payload JSON: ' . json_last_error_msg());
+            return null;
+        }
+        
+        scwc_debug_print($data, 'JWT payload decoded:');
+        return $data;
+    }
+    
+    /**
      * Get stored user data
      * 
      * @return array|null User data or null if not logged in
@@ -410,7 +511,34 @@ class SCWC_API_Manager {
             return null;
         }
         
-        return get_option('scwc_user_data');
+        // Try to get user data from stored option first
+        $stored_data = get_option('scwc_user_data');
+        if (!empty($stored_data)) {
+            return $stored_data;
+        }
+        
+        // If no stored data, try to extract from JWT token
+        $token = get_option('scwc_user_token');
+        if (!empty($token)) {
+            $jwt_payload = $this->decode_jwt_payload($token);
+            if ($jwt_payload) {
+                // Extract user information from JWT payload
+                $user_data = array(
+                    'id' => $jwt_payload['ID'] ?? null,
+                    'email' => $jwt_payload['email'] ?? null,
+                    'name' => $jwt_payload['name'] ?? null,
+                    'roles' => $jwt_payload['roles'] ?? array()
+                );
+                
+                // Store the extracted data for future use
+                update_option('scwc_user_data', $user_data);
+                scwc_debug_print($user_data, 'User data extracted from JWT:');
+                
+                return $user_data;
+            }
+        }
+        
+        return null;
     }
     
     /**
@@ -431,13 +559,13 @@ class SCWC_API_Manager {
         $url = $this->user_service_url . '/status';
         
         // Debug logging
-        error_log('SCWC: Testing user service connection to: ' . $url);
+        scwc_debug_log('SCWC: Testing user service connection to: ' . $url);
         
         $response = wp_remote_get($url, array('timeout' => 10));
         
         if (is_wp_error($response)) {
             $error_msg = 'Cannot connect to user service: ' . $response->get_error_message();
-            error_log('SCWC: User service error: ' . $error_msg);
+            scwc_debug_log('SCWC: User service error: ' . $error_msg);
             return array(
                 'success' => false,
                 'message' => $error_msg
@@ -445,7 +573,7 @@ class SCWC_API_Manager {
         }
         
         $response_code = wp_remote_retrieve_response_code($response);
-        error_log('SCWC: User service response code: ' . $response_code);
+        scwc_debug_log('SCWC: User service response code: ' . $response_code);
         
         if ($response_code === 200) {
             return array(
@@ -469,13 +597,13 @@ class SCWC_API_Manager {
         $url = $this->chatbot_service_url . '/status';
         
         // Debug logging
-        error_log('SCWC: Testing chatbot service connection to: ' . $url);
+        scwc_debug_log('SCWC: Testing chatbot service connection to: ' . $url);
         
         $response = wp_remote_get($url, array('timeout' => 10));
         
         if (is_wp_error($response)) {
             $error_msg = 'Cannot connect to chatbot service: ' . $response->get_error_message();
-            error_log('SCWC: Chatbot service error: ' . $error_msg);
+            scwc_debug_log('SCWC: Chatbot service error: ' . $error_msg);
             return array(
                 'success' => false,
                 'message' => $error_msg
@@ -483,7 +611,7 @@ class SCWC_API_Manager {
         }
         
         $response_code = wp_remote_retrieve_response_code($response);
-        error_log('SCWC: Chatbot service response code: ' . $response_code);
+        scwc_debug_log('SCWC: Chatbot service response code: ' . $response_code);
         
         if ($response_code === 200) {
             return array(
@@ -509,7 +637,7 @@ class SCWC_API_Manager {
     public function make_chatbot_service_request($endpoint, $method = 'GET', $data = null) {
         $token = get_option('scwc_user_token');
         if (!$token) {
-            error_log('SCWC: Chatbot service request failed - No token available');
+            scwc_debug_log('SCWC: Chatbot service request failed - No token available');
             return array(
                 'success' => false,
                 'message' => 'Not authenticated'
@@ -517,7 +645,7 @@ class SCWC_API_Manager {
         }
         
         $url = $this->chatbot_service_url . '/' . ltrim($endpoint, '/');
-        error_log('SCWC: Making chatbot service request - URL: ' . $url . ', Method: ' . $method);
+        scwc_debug_log('SCWC: Making chatbot service request - URL: ' . $url . ', Method: ' . $method);
         
         $args = array(
             'method' => $method,
@@ -530,14 +658,14 @@ class SCWC_API_Manager {
         
         if ($data && in_array($method, array('POST', 'PUT', 'PATCH'))) {
             $args['body'] = json_encode($data);
-            error_log('SCWC: Request body: ' . json_encode($data));
+            scwc_debug_log('SCWC: Request body: ' . json_encode($data));
         }
         
         $response = wp_remote_request($url, $args);
         
         if (is_wp_error($response)) {
             $error_msg = 'Request failed: ' . $response->get_error_message();
-            error_log('SCWC: Chatbot service request error: ' . $error_msg);
+            scwc_debug_log('SCWC: Chatbot service request error: ' . $error_msg);
             return array(
                 'success' => false,
                 'message' => $error_msg
@@ -546,7 +674,7 @@ class SCWC_API_Manager {
         
         $response_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
-        error_log('SCWC: Chatbot service response - Code: ' . $response_code . ', Body: ' . $response_body);
+        scwc_debug_log('SCWC: Chatbot service response - Code: ' . $response_code . ', Body: ' . $response_body);
         
         $response_data = json_decode($response_body, true);
         
@@ -559,11 +687,11 @@ class SCWC_API_Manager {
         } else {
             // Check if we got a 401 and try to refresh token
             if ($response_code === 401) {
-                error_log('SCWC: Got 401 on chatbot service request, attempting token refresh');
+                scwc_debug_log('SCWC: Got 401 on chatbot service request, attempting token refresh');
                 $refresh_result = $this->refresh_token();
                 
                 if ($refresh_result['success']) {
-                    error_log('SCWC: Token refreshed, retrying chatbot service request');
+                    scwc_debug_log('SCWC: Token refreshed, retrying chatbot service request');
                     // Update token and retry
                     $token = $refresh_result['data']['token'];
                     $args['headers']['Authorization'] = 'Bearer ' . $token;
@@ -574,7 +702,7 @@ class SCWC_API_Manager {
                         $response_body = wp_remote_retrieve_body($response);
                         $response_data = json_decode($response_body, true);
                         
-                        error_log('SCWC: Retry response - Code: ' . $response_code . ', Body: ' . $response_body);
+                        scwc_debug_log('SCWC: Retry response - Code: ' . $response_code . ', Body: ' . $response_body);
                         
                         if ($response_code >= 200 && $response_code < 300) {
                             return array(
@@ -588,7 +716,7 @@ class SCWC_API_Manager {
             }
             
             $error_message = isset($response_data['error']) ? $response_data['error'] : 'Request failed';
-            error_log('SCWC: Chatbot service request failed - ' . $error_message . ' (HTTP ' . $response_code . ')');
+            scwc_debug_log('SCWC: Chatbot service request failed - ' . $error_message . ' (HTTP ' . $response_code . ')');
             return array(
                 'success' => false,
                 'message' => $error_message,
@@ -617,14 +745,14 @@ class SCWC_API_Manager {
         ));
 
         if (is_wp_error($response)) {
-            error_log('SCWC: Get MCP server request failed - ' . $response->get_error_message());
+            scwc_debug_log('SCWC: Get MCP server request failed - ' . $response->get_error_message());
             return array('success' => false, 'message' => 'Request failed: ' . $response->get_error_message());
         }
 
         $response_code = wp_remote_retrieve_response_code($response);
         $body = wp_remote_retrieve_body($response);
         
-        error_log('SCWC: Get MCP server response - Code: ' . $response_code . ', Body: ' . $body);
+        scwc_debug_log('SCWC: Get MCP server response - Code: ' . $response_code . ', Body: ' . $body);
 
         if ($response_code === 401) {
             // Try to refresh token and retry

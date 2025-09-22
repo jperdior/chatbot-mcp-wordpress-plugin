@@ -1,11 +1,11 @@
 <?php
 /*
-Plugin Name: SupaChat WooCommerce Integration
-Plugin URI: https://supachat.com
-Description: Automatically integrate your WooCommerce store with SupaChat AI chatbots. Generates API keys and sets up MCP servers seamlessly.
+Plugin Name: SupaChat
+Plugin URI: https://supa-chat-woocommerce.com
+Description: Automatically integrate your site with SupaChat AI chatbots. Provides seamless integration for enhanced customer support.
 Version: 1.0.0
 Author: SupaChat
-Author URI: https://supachat.com
+Author URI: https://supa-chat-woocommerce.com
 Text Domain: supa-chat-woocommerce
 Requires at least: 5.6
 Requires PHP: 7.4
@@ -23,9 +23,29 @@ define('SCWC_PLUGIN_VERSION', '1.0.0');
 define('SCWC_PLUGIN_DIR_URL', plugin_dir_url(__FILE__));
 define('SCWC_PLUGIN_DIR_PATH', plugin_dir_path(__FILE__));
 
-// Default service URLs (these should be configurable in production)
-define('SCWC_USER_SERVICE_URL', 'http://user-api:9092/api/v1');
-define('SCWC_CHATBOT_SERVICE_URL', 'http://chatbot-api:9091/api/v1');
+/**
+ * Debug logging function - only logs when WP_DEBUG is enabled
+ */
+function scwc_debug_log($message) {
+    if (defined('WP_DEBUG') && WP_DEBUG && defined('WP_DEBUG_LOG') && WP_DEBUG_LOG) {
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log -- Debug logging only when WP_DEBUG is enabled
+        error_log('SCWC: ' . $message);
+    }
+}
+
+/**
+ * Debug print function - only logs arrays when WP_DEBUG is enabled
+ */
+function scwc_debug_print($data, $label = '') {
+    if (defined('WP_DEBUG') && WP_DEBUG && defined('WP_DEBUG_LOG') && WP_DEBUG_LOG) {
+        // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.PHP.DevelopmentFunctions.error_log_print_r -- Debug logging only when WP_DEBUG is enabled
+        error_log('SCWC: ' . $label . ' ' . print_r($data, true));
+    }
+}
+
+// Default service URLs
+define('SCWC_USER_SERVICE_URL', 'https://user.supa-chat.com/api/v1');
+define('SCWC_CHATBOT_SERVICE_URL', 'https://chatbot.supa-chat.com/api/v1');
 
 /**
  * Main plugin class
@@ -64,7 +84,7 @@ class SupaChatWooCommercePlugin {
     public function woocommerce_missing_notice() {
         ?>
         <div class="notice notice-error">
-            <p><?php _e('SupaChat WooCommerce Integration requires WooCommerce to be installed and active.', 'supa-chat-woocommerce'); ?></p>
+            <p><?php esc_html_e('SupaChat requires WooCommerce to be installed and active.', 'supa-chat-woocommerce'); ?></p>
         </div>
         <?php
     }
@@ -101,7 +121,7 @@ class SupaChatWooCommercePlugin {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
         
         // Register shortcode
-        add_shortcode('supachat', array($this, 'render_chatbot_shortcode'));
+        add_shortcode('supa-chat-woocommerce', array($this, 'render_chatbot_shortcode'));
         
         // Add bubble chat to frontend if enabled
         add_action('wp_footer', array($this, 'add_bubble_chat'));
@@ -109,7 +129,7 @@ class SupaChatWooCommercePlugin {
     
     public function add_admin_menu() {
         add_menu_page(
-            __('SupaChat WooCommerce', 'supa-chat-woocommerce'),
+            __('SupaChat', 'supa-chat-woocommerce'),
             __('SupaChat', 'supa-chat-woocommerce'),
             'manage_options',
             'supa-chat-woocommerce',
@@ -120,14 +140,14 @@ class SupaChatWooCommercePlugin {
     }
     
     public function enqueue_admin_scripts($hook) {
-        error_log('SCWC: enqueue_admin_scripts called with hook: ' . $hook);
+        scwc_debug_log(' enqueue_admin_scripts called with hook: ' . $hook);
         
         if ('toplevel_page_supa-chat-woocommerce' !== $hook) {
-            error_log('SCWC: Hook mismatch, expected toplevel_page_supa-chat-woocommerce, got: ' . $hook);
+            scwc_debug_log(' Hook mismatch, expected toplevel_page_supa-chat-woocommerce, got: ' . $hook);
             return;
         }
         
-        error_log('SCWC: Enqueuing admin scripts and styles');
+        scwc_debug_log(' Enqueuing admin scripts and styles');
         
         wp_enqueue_style('scwc-admin-css', SCWC_PLUGIN_DIR_URL . 'assets/css/admin.css', array(), SCWC_PLUGIN_VERSION);
         wp_enqueue_script('scwc-admin-js', SCWC_PLUGIN_DIR_URL . 'assets/js/admin.js', array('jquery'), SCWC_PLUGIN_VERSION, true);
@@ -151,27 +171,37 @@ class SupaChatWooCommercePlugin {
     }
     
     public function handle_login() {
+        scwc_debug_log(' handle_login called');
+        
         check_ajax_referer('scwc_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
+            scwc_debug_log(' Login failed - insufficient permissions');
             wp_send_json_error('Insufficient permissions');
             return;
         }
         
-        $email = sanitize_email($_POST['email'] ?? '');
-        $password = sanitize_text_field($_POST['password'] ?? '');
+        $email = sanitize_email(wp_unslash($_POST['email'] ?? ''));
+        $password = sanitize_text_field(wp_unslash($_POST['password'] ?? ''));
+        
+        scwc_debug_log(' Login attempt for email: ' . $email);
         
         if (empty($email) || empty($password)) {
+            scwc_debug_log(' Login failed - missing email or password');
             wp_send_json_error('Email and password are required');
             return;
         }
         
         $api_manager = new SCWC_API_Manager();
+        scwc_debug_log(' Calling API manager login');
         $result = $api_manager->login($email, $password);
+        scwc_debug_print($result, "");
         
         if ($result['success']) {
+            scwc_debug_log(' Login successful for: ' . $email);
             wp_send_json_success($result['data']);
         } else {
+            scwc_debug_log(' Login failed for: ' . $email . ' - ' . $result['message']);
             wp_send_json_error($result['message']);
         }
     }
@@ -191,40 +221,45 @@ class SupaChatWooCommercePlugin {
     }
     
     public function handle_setup_integration() {
+        scwc_debug_log(' handle_setup_integration called');
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Debug logging only, nonce verified below
+        scwc_debug_print($_POST, "");
+        
         check_ajax_referer('scwc_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
+            scwc_debug_log(' Integration setup failed - Insufficient permissions');
             wp_send_json_error('Insufficient permissions');
             return;
         }
         
-        $chatbot_id = sanitize_text_field($_POST['chatbot_id'] ?? '');
-        $integration_name = sanitize_text_field($_POST['integration_name'] ?? '');
+        $chatbot_id = sanitize_text_field(wp_unslash($_POST['chatbot_id'] ?? ''));
+        $integration_name = sanitize_text_field(wp_unslash($_POST['integration_name'] ?? ''));
         
-        error_log('SCWC: Starting integration setup - Chatbot ID: ' . $chatbot_id . ', Name: ' . $integration_name);
+        scwc_debug_log(' Starting integration setup - Chatbot ID: ' . $chatbot_id . ', Name: ' . $integration_name);
         
         if (empty($chatbot_id) || empty($integration_name)) {
-            error_log('SCWC: Integration setup failed - Missing required fields');
+            scwc_debug_log(' Integration setup failed - Missing required fields');
             wp_send_json_error('Chatbot ID and integration name are required');
             return;
         }
         
         try {
             // Generate WooCommerce API keys
-            error_log('SCWC: Generating WooCommerce API keys');
+            scwc_debug_log(' Generating WooCommerce API keys');
             $wc_api = new SCWC_WooCommerce_API();
             $api_keys = $wc_api->generate_api_keys($integration_name);
             
             if (!$api_keys['success']) {
-                error_log('SCWC: API key generation failed: ' . $api_keys['message']);
+                scwc_debug_log(' API key generation failed: ' . $api_keys['message']);
                 wp_send_json_error($api_keys['message']);
                 return;
             }
             
-            error_log('SCWC: API keys generated successfully - Key ID: ' . $api_keys['key_id']);
+            scwc_debug_log(' API keys generated successfully - Key ID: ' . $api_keys['key_id']);
             
             // Create MCP server
-            error_log('SCWC: Creating MCP server for chatbot: ' . $chatbot_id);
+            scwc_debug_log(' Creating MCP server for chatbot: ' . $chatbot_id);
             $mcp_manager = new SCWC_MCP_Manager();
             $mcp_result = $mcp_manager->create_wordpress_mcp_server(
                 $chatbot_id,
@@ -235,14 +270,14 @@ class SupaChatWooCommercePlugin {
             );
             
             if (!$mcp_result['success']) {
-                error_log('SCWC: MCP server creation failed: ' . $mcp_result['message']);
+                scwc_debug_log(' MCP server creation failed: ' . $mcp_result['message']);
                 // If MCP creation fails, clean up the API keys
                 $wc_api->delete_api_key($api_keys['key_id']);
                 wp_send_json_error($mcp_result['message']);
                 return;
             }
             
-            error_log('SCWC: MCP server created successfully - Server ID: ' . $mcp_result['server_id']);
+            scwc_debug_log(' MCP server created successfully - Server ID: ' . $mcp_result['server_id']);
             
             // Store integration data
             $integration_data = array(
@@ -289,16 +324,19 @@ class SupaChatWooCommercePlugin {
     
     public function handle_google_oauth_callback() {
         // Check if this is a Google OAuth callback
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- OAuth callback, nonce not applicable
         if (!isset($_GET['google_callback'])) {
             return;
         }
         
         // Verify we're on the right page
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- OAuth callback, nonce not applicable
         if (!isset($_GET['page']) || $_GET['page'] !== 'supa-chat-woocommerce') {
             return;
         }
         
         // Check if we have tokens from the frontend redirect
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- OAuth callback, nonce not applicable
         if (!isset($_GET['token'])) {
             // Redirect to admin page with error message
             $redirect_url = admin_url('admin.php?page=supa-chat-woocommerce&google_login=error&message=' . urlencode('No authentication tokens received'));
@@ -306,11 +344,13 @@ class SupaChatWooCommercePlugin {
             exit;
         }
         
-        $token = sanitize_text_field($_GET['token']);
-        $refresh_token = isset($_GET['refresh_token']) ? sanitize_text_field($_GET['refresh_token']) : '';
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- OAuth callback, nonce not applicable
+        $token = sanitize_text_field(wp_unslash($_GET['token']));
+        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- OAuth callback, nonce not applicable
+        $refresh_token = isset($_GET['refresh_token']) ? sanitize_text_field(wp_unslash($_GET['refresh_token'])) : '';
         
-        error_log('SCWC: Google OAuth callback - Token received: ' . substr($token, 0, 20) . '...');
-        error_log('SCWC: Google OAuth callback - Refresh token: ' . ($refresh_token ? 'Yes' : 'No'));
+        scwc_debug_log(' Google OAuth callback - Token received: ' . substr($token, 0, 20) . '...');
+        scwc_debug_log(' Google OAuth callback - Refresh token: ' . ($refresh_token ? 'Yes' : 'No'));
         
         $api_manager = new SCWC_API_Manager();
         $result = $api_manager->store_google_tokens($token, $refresh_token);
@@ -332,12 +372,12 @@ class SupaChatWooCommercePlugin {
      * Check if a chatbot is integrated
      */
     public function handle_check_integration() {
-        if (!wp_verify_nonce($_POST['nonce'], 'scwc_nonce')) {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'scwc_nonce')) {
             wp_send_json_error('Invalid nonce');
             return;
         }
 
-        $chatbot_id = sanitize_text_field($_POST['chatbot_id']);
+        $chatbot_id = isset($_POST['chatbot_id']) ? sanitize_text_field(wp_unslash($_POST['chatbot_id'])) : '';
         if (empty($chatbot_id)) {
             wp_send_json_error('Chatbot ID is required');
             return;
@@ -361,20 +401,21 @@ class SupaChatWooCommercePlugin {
      * Get MCP server details
      */
     public function handle_get_mcp_server() {
-        if (!wp_verify_nonce($_POST['nonce'], 'scwc_nonce')) {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'scwc_nonce')) {
             wp_send_json_error('Invalid nonce');
             return;
         }
 
-        $chatbot_id = sanitize_text_field($_POST['chatbot_id']);
-        $mcp_server_id = sanitize_text_field($_POST['mcp_server_id']);
+        $chatbot_id = isset($_POST['chatbot_id']) ? sanitize_text_field(wp_unslash($_POST['chatbot_id'])) : '';
+        $mcp_server_id = isset($_POST['mcp_server_id']) ? sanitize_text_field(wp_unslash($_POST['mcp_server_id'])) : '';
         
         if (empty($chatbot_id) || empty($mcp_server_id)) {
             wp_send_json_error('Chatbot ID and MCP Server ID are required');
             return;
         }
 
-        $result = $this->api_manager->get_mcp_server($chatbot_id, $mcp_server_id);
+        $api_manager = new SCWC_API_Manager();
+        $result = $api_manager->get_mcp_server($chatbot_id, $mcp_server_id);
         
         if ($result['success']) {
             wp_send_json_success($result['data']);
@@ -384,74 +425,150 @@ class SupaChatWooCommercePlugin {
     }
     
     public function handle_get_chatbots() {
-        error_log('SCWC: handle_get_chatbots called');
+        scwc_debug_log(' handle_get_chatbots called');
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Debug logging only, nonce verified below
+        scwc_debug_print($_POST, "");
         
-        if (!wp_verify_nonce($_POST['nonce'], 'scwc_nonce')) {
-            error_log('SCWC: Invalid nonce in get_chatbots');
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'scwc_nonce')) {
+            scwc_debug_log(' Invalid nonce in get_chatbots');
             wp_send_json_error('Invalid nonce');
             return;
         }
         
         if (!current_user_can('manage_options')) {
-            error_log('SCWC: Insufficient permissions in get_chatbots');
+            scwc_debug_log(' Insufficient permissions in get_chatbots');
             wp_send_json_error('Insufficient permissions');
             return;
         }
         
-        error_log('SCWC: Getting chatbots from API');
+        scwc_debug_log(' Getting chatbots from API');
         
         $api_manager = new SCWC_API_Manager();
+        scwc_debug_log(' API Manager created, calling get_chatbots()');
+        
         $result = $api_manager->get_chatbots();
+        scwc_debug_print($result, "");
         
         if ($result['success']) {
             // Extract the chatbots array from the API response
             $chatbots = array();
             if (isset($result['data']['Chatbots']) && is_array($result['data']['Chatbots'])) {
                 $chatbots = $result['data']['Chatbots'];
+                scwc_debug_log(' Found ' . count($chatbots) . ' chatbots');
+                
+                // Get integration status for each chatbot (simple local check)
+                scwc_debug_log(' === CHECKING INTEGRATION STATUS ===');
+                $mcp_manager = new SCWC_MCP_Manager();
+                
+                foreach ($chatbots as &$chatbot) {
+                    $chatbot_id = $chatbot['id'] ?? null;
+                    if ($chatbot_id) {
+                        scwc_debug_log(' Checking integration status for chatbot: ' . $chatbot_id);
+                        $integration_status = $mcp_manager->get_integration_status($chatbot_id);
+                        
+                        // Add integration info to chatbot data for frontend
+                        $chatbot['integration_status'] = $integration_status;
+                        scwc_debug_log(' Chatbot ' . $chatbot_id . ' integration status: ' . ($integration_status['is_integrated'] ? 'INTEGRATED' : 'AVAILABLE'));
+                    }
+                }
+                unset($chatbot); // Break reference
+                
+                scwc_debug_log(' Integration status check completed');
+            } else {
+                scwc_debug_log(' No chatbots found in response data structure');
+                scwc_debug_print(array_keys($result['data'] ?? []), "");
             }
             wp_send_json_success($chatbots);
         } else {
+            scwc_debug_log(' Failed to get chatbots: ' . $result['message']);
             wp_send_json_error($result['message']);
         }
     }
     
     public function handle_delete_integration() {
+        scwc_debug_log('=== DELETE INTEGRATION STARTED ===');
+        scwc_debug_print($_POST, 'POST data received:');
+        
         check_ajax_referer('scwc_nonce', 'nonce');
+        scwc_debug_log(' Nonce verification passed');
         
         if (!current_user_can('manage_options')) {
+            scwc_debug_log(' Permission check failed - user cannot manage options');
             wp_send_json_error('Insufficient permissions');
             return;
         }
+        scwc_debug_log(' Permission check passed');
         
-        $chatbot_id = sanitize_text_field($_POST['chatbot_id'] ?? '');
+        $chatbot_id = isset($_POST['chatbot_id']) ? sanitize_text_field(wp_unslash($_POST['chatbot_id'])) : '';
+        scwc_debug_log(' Chatbot ID extracted: ' . $chatbot_id);
         
         if (empty($chatbot_id)) {
+            scwc_debug_log(' ERROR: Chatbot ID is empty');
             wp_send_json_error('Chatbot ID is required');
             return;
         }
         
         $integration_data = get_option('scwc_integration_' . $chatbot_id);
+        $is_orphaned = !$integration_data;
         
-        if (!$integration_data) {
-            wp_send_json_error('Integration not found');
-            return;
+        scwc_debug_log(' Integration data check - Found: ' . ($integration_data ? 'YES' : 'NO'));
+        scwc_debug_log(' Is orphaned: ' . ($is_orphaned ? 'YES' : 'NO'));
+        
+        if ($integration_data) {
+            scwc_debug_print($integration_data, 'Integration data:');
         }
         
         try {
-            // Delete MCP server
-            $mcp_manager = new SCWC_MCP_Manager();
-            $mcp_manager->delete_mcp_server($integration_data['mcp_server_id']);
-            
-            // Delete WooCommerce API key
-            $wc_api = new SCWC_WooCommerce_API();
-            $wc_api->delete_api_key($integration_data['api_key_id']);
-            
-            // Remove integration data
-            delete_option('scwc_integration_' . $chatbot_id);
-            
-            wp_send_json_success('Integration deleted successfully');
+            if ($integration_data) {
+                // Normal case: we have local integration data
+                scwc_debug_log(' === NORMAL CLEANUP PATH ===');
+                scwc_debug_log(' Found local integration data, performing normal cleanup');
+                
+                // Delete MCP server
+                $mcp_manager = new SCWC_MCP_Manager();
+                $delete_result = $mcp_manager->delete_mcp_server($integration_data['mcp_server_id'], $chatbot_id);
+                scwc_debug_print($delete_result, 'MCP server deletion result:');
+                
+                // Delete WooCommerce API key
+                $wc_api = new SCWC_WooCommerce_API();
+                $wc_api->delete_api_key($integration_data['api_key_id']);
+                
+                // Remove integration data
+                delete_option('scwc_integration_' . $chatbot_id);
+                
+                scwc_debug_log(' Integration cleanup completed successfully');
+                wp_send_json_success('Integration deleted successfully');
+                
+            } else {
+                // Orphaned case: no local data but chatbot shows as integrated
+                scwc_debug_log(' === ORPHANED CLEANUP PATH ===');
+                scwc_debug_log(' No local integration data found (orphaned integration), attempting cleanup');
+                
+                // Try to delete any orphaned MCP servers for this chatbot
+                scwc_debug_log(' Creating MCP Manager for orphaned cleanup');
+                $mcp_manager = new SCWC_MCP_Manager();
+                scwc_debug_log(' Calling cleanup_orphaned_servers for chatbot: ' . $chatbot_id);
+                $cleanup_result = $mcp_manager->cleanup_orphaned_servers($chatbot_id);
+                scwc_debug_print($cleanup_result, 'MCP cleanup result:');
+                
+                // Clean up any orphaned API keys
+                scwc_debug_log(' Creating WooCommerce API for orphaned key cleanup');
+                $wc_api = new SCWC_WooCommerce_API();
+                scwc_debug_log(' Calling cleanup_orphaned_keys for chatbot: ' . $chatbot_id);
+                $key_cleanup_result = $wc_api->cleanup_orphaned_keys($chatbot_id);
+                scwc_debug_print($key_cleanup_result, 'API key cleanup result:');
+                
+                // Remove any orphaned settings
+                scwc_debug_log(' Removing orphaned WordPress options');
+                delete_option('scwc_integration_' . $chatbot_id);
+                delete_option('scwc_bubble_enabled_' . $chatbot_id);
+                
+                scwc_debug_log(' Orphaned integration cleanup completed successfully');
+                wp_send_json_success('Orphaned integration cleaned up successfully');
+            }
             
         } catch (Exception $e) {
+            scwc_debug_log(' Integration deletion failed: ' . $e->getMessage());
             wp_send_json_error('Delete failed: ' . $e->getMessage());
         }
     }
@@ -460,7 +577,7 @@ class SupaChatWooCommercePlugin {
      * Handle saving website integration settings
      */
     public function handle_save_website_integration() {
-        if (!wp_verify_nonce($_POST['nonce'], 'scwc_nonce')) {
+        if (!isset($_POST['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['nonce'])), 'scwc_nonce')) {
             wp_send_json_error('Invalid nonce');
             return;
         }
@@ -470,7 +587,7 @@ class SupaChatWooCommercePlugin {
             return;
         }
 
-        $chatbot_id = sanitize_text_field($_POST['chatbot_id']);
+        $chatbot_id = isset($_POST['chatbot_id']) ? sanitize_text_field(wp_unslash($_POST['chatbot_id'])) : '';
         $bubble_enabled = isset($_POST['bubble_enabled']) && $_POST['bubble_enabled'] === 'true';
 
         if (empty($chatbot_id)) {
@@ -493,10 +610,10 @@ class SupaChatWooCommercePlugin {
             'width' => '100%',
             'height' => '600px',
             'title' => 'SupaChat Assistant'
-        ), $atts, 'supachat');
+        ), $atts, 'supa-chat-woocommerce');
 
         if (empty($atts['chatbot'])) {
-            return '<p><strong>SupaChat Error:</strong> Chatbot ID is required. Usage: [supachat chatbot="your-chatbot-id"]</p>';
+            return '<p><strong>SupaChat Error:</strong> Chatbot ID is required. Usage: [supa-chat-woocommerce chatbot="your-chatbot-id"]</p>';
         }
 
         $chatbot_id = esc_attr($atts['chatbot']);
@@ -504,11 +621,11 @@ class SupaChatWooCommercePlugin {
         $height = esc_attr($atts['height']);
         $title = esc_attr($atts['title']);
 
-        // Generate iframe URL - you'll need to replace this with your actual chatbot URL
-        $iframe_url = "https://your-chatbot-domain.com/chat/{$chatbot_id}";
+        // Generate iframe URL for the chatbot
+        $iframe_url = "https://chatbot.supa-chat.com/chat/{$chatbot_id}";
 
         return sprintf(
-            '<div class="supachat-iframe-container" style="width: %s; height: %s; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+            '<div class="supa-chat-woocommerce-iframe-container" style="width: %s; height: %s; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
                 <iframe src="%s" width="100%%" height="100%%" frameborder="0" title="%s" style="border: none;"></iframe>
             </div>',
             $width,
@@ -524,6 +641,7 @@ class SupaChatWooCommercePlugin {
     public function add_bubble_chat() {
         // Get all enabled bubble chats
         global $wpdb;
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for finding enabled bubble chats
         $options = $wpdb->get_results(
             "SELECT option_name, option_value FROM {$wpdb->options} 
              WHERE option_name LIKE 'scwc_bubble_enabled_%' AND option_value = '1'"
@@ -535,7 +653,10 @@ class SupaChatWooCommercePlugin {
                 $chatbot_id = str_replace('scwc_bubble_enabled_', '', $option->option_name);
                 
                 // Output bubble chat script
-                echo $this->generate_bubble_script($chatbot_id);
+                echo wp_kses($this->generate_bubble_script($chatbot_id), array(
+                    'script' => array('type' => array()),
+                    'div' => array(),
+                )) . "\n";
                 break; // Only show one bubble at a time
             }
         }
@@ -551,7 +672,7 @@ class SupaChatWooCommercePlugin {
         (function(){
             window.SupaChatConfig={chatbotId:\"" . esc_js($chatbot_id) . "\"};
             var d=document,s=d.createElement(\"script\");
-            s.src=\"http://local.widget-static.com:8000/widget.js\";
+            s.src=\"https://widget.supa-chat.com/widget.js\";
             s.async=1;
             d.head.appendChild(s);
         })();
@@ -565,7 +686,7 @@ function scwc_activate_plugin() {
     // Check requirements
     if (!class_exists('WooCommerce')) {
         deactivate_plugins(plugin_basename(__FILE__));
-        wp_die(__('SupaChat WooCommerce Integration requires WooCommerce to be installed and active.', 'supa-chat-woocommerce'));
+        wp_die(esc_html__('SupaChat requires WooCommerce to be installed and active.', 'supa-chat-woocommerce'));
     }
     
     // Create database tables or options if needed
@@ -588,6 +709,7 @@ function scwc_uninstall_plugin() {
     
     // Delete all integration data
     global $wpdb;
+    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching -- Required for plugin cleanup on uninstall
     $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'scwc_integration_%'");
 }
 

@@ -11,7 +11,6 @@ console.log('SCWC: JavaScript file loaded');
         init: function() {
             console.log('SCWC: init() called');
             this.bindEvents();
-            this.initTabs();
             this.loadInitialData();
         },
 
@@ -37,6 +36,9 @@ console.log('SCWC: JavaScript file loaded');
             // Chatbot selection
             $(document).on('click', '.scwc-chatbot-card', this.selectChatbot.bind(this));
             
+            // Connect chatbot button
+            $(document).on('click', '.scwc-integrate-chatbot', this.handleConnectChatbot.bind(this));
+            
             // Website integration
             $(document).on('click', '.scwc-website-integration', this.showWebsiteIntegration.bind(this));
             
@@ -51,45 +53,13 @@ console.log('SCWC: JavaScript file loaded');
                 }
             });
             
-            // Settings form
-            $('#scwc-settings-form').on('submit', this.handleSaveSettings.bind(this));
             
             // Integration actions
             $(document).on('click', '.scwc-delete-integration', this.handleDeleteIntegration.bind(this));
             $(document).on('click', '.scwc-test-integration', this.handleTestIntegration.bind(this));
             $(document).on('click', '.scwc-refresh-integration', this.handleRefreshIntegration.bind(this));
-            
-            // Logs
-            $('#scwc-refresh-logs').on('click', this.loadLogs.bind(this));
-            $('#scwc-clear-logs').on('click', this.clearLogs.bind(this));
-            $('#scwc-log-level, #scwc-log-date').on('change', this.loadLogs.bind(this));
-            
-            // Danger zone
-            $('#scwc-cleanup-all').on('click', this.handleCleanupAll.bind(this));
-            $('#scwc-reset-plugin').on('click', this.handleResetPlugin.bind(this));
         },
 
-        initTabs: function() {
-            $('.nav-tab').on('click', function(e) {
-                e.preventDefault();
-                const tabId = $(this).data('tab');
-                
-                // Update active tab
-                $('.nav-tab').removeClass('nav-tab-active');
-                $(this).addClass('nav-tab-active');
-                
-                // Show tab content
-                $('.tab-content').removeClass('active');
-                $('#tab-' + tabId).addClass('active');
-                
-                // Load tab-specific data
-                if (tabId === 'integrations') {
-                    SCWC.loadIntegrations();
-                } else if (tabId === 'logs') {
-                    SCWC.loadLogs();
-                }
-            });
-        },
 
         loadInitialData: function() {
             console.log('SCWC: loadInitialData called');
@@ -145,11 +115,7 @@ console.log('SCWC: JavaScript file loaded');
             
             console.log('SCWC: scwc_ajax object:', scwc_ajax);
             
-            // First, make sure the integrations tab is visible
-            $('.scwc-tab-content').hide();
-            $('#scwc-integrations-tab').show();
-            $('.nav-tab').removeClass('nav-tab-active');
-            $('[data-tab="integrations"]').addClass('nav-tab-active');
+            // Load integrations content
             
             const $container = $('#scwc-chatbots-container');
             const $loading = $('.scwc-loading-chatbots');
@@ -188,39 +154,104 @@ console.log('SCWC: JavaScript file loaded');
                     }
                 })
                 .fail((xhr, status, error) => {
-                    console.log('SCWC: AJAX request failed:', xhr, status, error);
+                    console.error('SCWC: AJAX request failed:', {
+                        status: status,
+                        error: error,
+                        responseText: xhr.responseText,
+                        statusCode: xhr.status,
+                        readyState: xhr.readyState,
+                        url: scwc_ajax.ajax_url
+                    });
                     $loading.hide();
-                    $container.html('<div class="scwc-error-box"><p>Network error. Please try again.</p></div>');
+                    let errorMsg = 'Network error. Please try again.';
+                    if (xhr.responseText) {
+                        try {
+                            const errorData = JSON.parse(xhr.responseText);
+                            if (errorData.data) {
+                                errorMsg = 'Error: ' + errorData.data;
+                            }
+                        } catch (e) {
+                            errorMsg = 'Server error: ' + xhr.status + ' ' + error;
+                        }
+                    }
+                    $container.html(`<div class="scwc-error-box"><p>${errorMsg}</p></div>`);
                 });
         },
 
         renderChatbots: function(chatbots) {
+            console.log('SCWC: renderChatbots called with:', chatbots);
+            console.log('SCWC: Chatbots type:', typeof chatbots);
+            console.log('SCWC: Chatbots is array:', Array.isArray(chatbots));
+            console.log('SCWC: Chatbots length:', chatbots ? chatbots.length : 'N/A');
+            
             const $container = $('#scwc-chatbots-container');
+            console.log('SCWC: Container found for rendering:', $container.length);
             
             if (!chatbots || chatbots.length === 0) {
-                $container.html('<div class="scwc-info-box"><p>No chatbots found. Please create a chatbot first in your SupaChat dashboard.</p></div>');
+                console.log('SCWC: No chatbots to render');
+                $container.html(`
+                    <div class="scwc-info-box">
+                        <h3>No Chatbots Found</h3>
+                        <p>You don't have any chatbots yet. Create your first chatbot in your SupaChat dashboard to get started with AI-powered customer support.</p>
+                        <a href="https://chatbot.supa-chat.com" target="_blank" class="button button-primary">
+                            Create Your First Chatbot
+                        </a>
+                    </div>
+                `);
                 return;
             }
+            
+            console.log('SCWC: Rendering', chatbots.length, 'chatbots');
 
-            let html = '<div class="scwc-chatbots-grid">';
+            // Always show chatbot details, even for single chatbot
+            let html = `
+                <div class="scwc-chatbots-header">
+                    <h3>Your Chatbots (${chatbots.length})</h3>
+                    <p>Select a chatbot to connect with your site. Your chatbot will have access to your content and data.</p>
+                </div>
+                <div class="scwc-chatbots-grid">
+            `;
+            
             chatbots.forEach(chatbot => {
-                const isIntegrated = this.checkIfIntegrated(chatbot.id);
+                const isIntegrated = this.checkIfIntegrated(chatbot);
+                const createdDate = new Date(chatbot.created_at).toLocaleDateString();
+                const updatedDate = new Date(chatbot.updated_at).toLocaleDateString();
+                
                 html += `
                     <div class="scwc-chatbot-card ${isIntegrated ? 'integrated' : ''}" data-chatbot-id="${chatbot.id}">
                         <div class="scwc-chatbot-header">
                             <h4>${this.escapeHtml(chatbot.name)}</h4>
-                            ${isIntegrated ? '<span class="scwc-integrated-badge">Integrated</span>' : ''}
+                            ${isIntegrated ? '<span class="scwc-integrated-badge">✓ Integrated</span>' : '<span class="scwc-available-badge">Available</span>'}
                         </div>
-                        <p class="scwc-chatbot-description">${this.escapeHtml(chatbot.description || 'No description')}</p>
+                        <div class="scwc-chatbot-description">
+                            <p><strong>Description:</strong> ${this.escapeHtml(chatbot.description || 'No description provided')}</p>
+                        </div>
                         <div class="scwc-chatbot-meta">
-                            <span class="scwc-chatbot-date">Created: ${new Date(chatbot.created_at).toLocaleDateString()}</span>
+                            <div class="scwc-meta-row">
+                                <span class="scwc-meta-label">Status:</span>
+                                <span class="scwc-chatbot-status ${chatbot.status?.toLowerCase() || 'active'}">${chatbot.status || 'Active'}</span>
+                            </div>
+                            <div class="scwc-meta-row">
+                                <span class="scwc-meta-label">Created:</span>
+                                <span>${createdDate}</span>
+                            </div>
+                            <div class="scwc-meta-row">
+                                <span class="scwc-meta-label">Last Updated:</span>
+                                <span>${updatedDate}</span>
+                            </div>
                         </div>
                         <div class="scwc-chatbot-actions">
                             ${isIntegrated ? 
-                                '<button type="button" class="button button-secondary scwc-remove-integration-direct" data-chatbot-id="' + chatbot.id + '" data-chatbot-name="' + this.escapeHtml(chatbot.name) + '">Remove Integration</button>' :
-                                '<button type="button" class="button button-primary scwc-integrate-chatbot">Integrate</button>'
+                                `<button type="button" class="button button-secondary scwc-remove-integration-direct" data-chatbot-id="${chatbot.id}" data-chatbot-name="${this.escapeHtml(chatbot.name)}">
+                                    <span class="dashicons dashicons-no"></span> Remove Connection
+                                </button>
+                                <button type="button" class="button scwc-website-integration" data-chatbot-id="${chatbot.id}">
+                                    <span class="dashicons dashicons-admin-appearance"></span> Add to Website
+                                </button>` :
+                                `<button type="button" class="button button-primary scwc-integrate-chatbot">
+                                    Connect Chatbot
+                                </button>`
                             }
-                            <button type="button" class="button scwc-website-integration" data-chatbot-id="${chatbot.id}">Add to Website</button>
                         </div>
                     </div>
                 `;
@@ -229,23 +260,39 @@ console.log('SCWC: JavaScript file loaded');
             
             $container.html(html);
 
-            // If only one chatbot and not integrated, pre-select it
-            if (chatbots.length === 1 && !this.checkIfIntegrated(chatbots[0].id)) {
-                this.selectChatbot({ currentTarget: $container.find('.scwc-chatbot-card').first()[0] });
-            }
+            // Don't auto-select single chatbot - let user choose explicitly for consistency
         },
 
-        checkIfIntegrated: function(chatbotId) {
-            // Check if this chatbot is already integrated
-            // This would check against stored MCP server ID
-            const storedMcpServerId = localStorage.getItem(`scwc_mcp_server_${chatbotId}`);
+        checkIfIntegrated: function(chatbot) {
+            // Use integration status from server (simple and reliable)
+            if (chatbot.integration_status) {
+                const isIntegrated = chatbot.integration_status.is_integrated;
+                console.log(`SCWC: Integration status for ${chatbot.id}:`, {
+                    is_integrated: isIntegrated,
+                    local_exists: chatbot.integration_status.local_exists,
+                    mcp_server_id: chatbot.integration_status.mcp_server_id,
+                    issue: chatbot.integration_status.issue
+                });
+                return isIntegrated;
+            }
+            
+            // Fallback to localStorage check (shouldn't be needed now)
+            const storedMcpServerId = localStorage.getItem(`scwc_mcp_server_${chatbot.id}`);
+            console.log(`SCWC: No integration status from server, using localStorage for ${chatbot.id}:`, !!storedMcpServerId);
             return !!storedMcpServerId;
         },
 
         selectChatbot: function(e) {
+            console.log('SCWC: selectChatbot called', e);
             const $card = $(e.currentTarget);
             const chatbotId = $card.data('chatbot-id');
             const isIntegrated = $card.hasClass('integrated');
+
+            console.log('SCWC: Chatbot selected:', {
+                chatbotId: chatbotId,
+                isIntegrated: isIntegrated,
+                cardElement: $card[0]
+            });
 
             if (isIntegrated) {
                 // Show integration status
@@ -256,9 +303,56 @@ console.log('SCWC: JavaScript file loaded');
             }
         },
 
+        handleConnectChatbot: function(e) {
+            console.log('SCWC: handleConnectChatbot called', e);
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const $button = $(e.currentTarget);
+            const $card = $button.closest('.scwc-chatbot-card');
+            const chatbotId = $card.data('chatbot-id');
+            const chatbotName = $card.find('h4').text();
+            
+            console.log('SCWC: Connect chatbot button clicked:', {
+                chatbotId: chatbotId,
+                chatbotName: chatbotName,
+                button: $button[0],
+                card: $card[0]
+            });
+            
+            // Show integration form
+            this.showIntegrationForm(chatbotId, chatbotName);
+        },
+
         showIntegrationForm: function(chatbotId, chatbotName) {
+            // Find the chatbot data from the rendered list
+            const $chatbotCard = $(`.scwc-chatbot-card[data-chatbot-id="${chatbotId}"]`);
+            const chatbotDescription = $chatbotCard.find('.scwc-chatbot-description p').text().replace('Description: ', '');
+            const chatbotStatus = $chatbotCard.find('.scwc-chatbot-status').text() || 'Active';
+            const chatbotCreated = $chatbotCard.find('.scwc-meta-row:contains("Created:") span:last').text();
+            
+            // Generate integration name using WordPress site title
+            const siteTitle = document.title.replace(' ‹ ', ' - ').split(' - ')[0] || 'WordPress Site';
+            const integrationName = `${chatbotName} - ${siteTitle}`;
+            
+            // Populate the integration form with chatbot details
             $('#selected-chatbot-id').val(chatbotId);
-            $('#integration-name').val(`${chatbotName} Integration`);
+            $('#integration-name').val(integrationName);
+            
+            // Update the chatbot preview section
+            $('#selected-chatbot-name').text(chatbotName);
+            $('#selected-chatbot-description').text(chatbotDescription || 'No description provided');
+            $('#selected-chatbot-status').text(chatbotStatus).removeClass().addClass('scwc-meta-badge').addClass(chatbotStatus.toLowerCase());
+            $('#selected-chatbot-created').text(chatbotCreated ? `Created: ${chatbotCreated}` : '');
+            
+            console.log('SCWC: Showing integration form for:', {
+                id: chatbotId,
+                name: chatbotName,
+                description: chatbotDescription,
+                status: chatbotStatus,
+                created: chatbotCreated,
+                integrationName: integrationName
+            });
             
             $('.scwc-chatbot-selection').hide();
             $('#scwc-integration-form-container').show();
@@ -279,14 +373,13 @@ console.log('SCWC: JavaScript file loaded');
         },
 
         handleCreateIntegration: function(e) {
+            console.log('SCWC: handleCreateIntegration called', e);
             e.preventDefault();
             
             const $form = $(e.target);
             const $submitBtn = $form.find('button[type="submit"]');
             const originalText = $submitBtn.text();
             
-            $submitBtn.prop('disabled', true).text('Creating...');
-
             const data = {
                 action: 'scwc_setup_integration',
                 nonce: scwc_ajax.nonce,
@@ -294,9 +387,16 @@ console.log('SCWC: JavaScript file loaded');
                 integration_name: $('#integration-name').val()
             };
 
+            console.log('SCWC: Creating integration with data:', data);
+            console.log('SCWC: AJAX URL:', scwc_ajax.ajax_url);
+            
+            $submitBtn.prop('disabled', true).text('Creating...');
+
             $.post(scwc_ajax.ajax_url, data)
                 .done((response) => {
+                    console.log('SCWC: Integration creation response:', response);
                     if (response.success) {
+                        console.log('SCWC: Integration created successfully');
                         // Store MCP server ID
                         if (response.data && response.data.mcp_server_id) {
                             localStorage.setItem(`scwc_mcp_server_${data.chatbot_id}`, response.data.mcp_server_id);
@@ -304,12 +404,22 @@ console.log('SCWC: JavaScript file loaded');
                         
                         this.showMessage('Integration created successfully!', 'success');
                         this.cancelIntegration();
-                        this.loadChatbots(); // Reload to show updated status
+                        
+                        // Reload immediately to show updated status
+                        console.log('SCWC: Reloading chatbots after integration creation');
+                        this.loadChatbots();
                     } else {
+                        console.log('SCWC: Integration creation failed:', response);
                         this.showMessage(`Failed to create integration: ${response.data}`, 'error');
                     }
                 })
-                .fail(() => {
+                .fail((xhr, status, error) => {
+                    console.log('SCWC: Integration creation AJAX failed:', {
+                        xhr: xhr,
+                        status: status,
+                        error: error,
+                        responseText: xhr.responseText
+                    });
                     this.showMessage('Network error. Please try again.', 'error');
                 })
                 .always(() => {
@@ -415,7 +525,7 @@ console.log('SCWC: JavaScript file loaded');
     script.onload = function() {
         SupaChatBubble.init({
             chatbotId: '${chatbotId}',
-            apiUrl: 'https://your-chatbot-api.com',
+            apiUrl: 'https://chatbot.supa-chat.com/api/v1',
             position: 'bottom-right',
             primaryColor: '#007bff',
             size: 'medium'
@@ -507,22 +617,25 @@ console.log('SCWC: JavaScript file loaded');
             e.preventDefault();
             e.stopPropagation();
             
-            const chatbotId = $(e.target).data('chatbot-id');
-            const chatbotName = $(e.target).data('chatbot-name');
+            // Get the button element (could be the span or button)
+            const $button = $(e.target).closest('button');
+            const chatbotId = $button.data('chatbot-id');
+            const chatbotName = $button.data('chatbot-name');
+            
+            console.log('SCWC: Remove integration - chatbot ID:', chatbotId, 'name:', chatbotName);
             
             if (!chatbotId) {
                 this.showMessage('No chatbot ID found', 'error');
                 return;
             }
 
-            const confirmMessage = `Are you sure you want to remove the integration for "${chatbotName}"?\n\nThis will:\n• Delete the MCP server connection\n• Remove WooCommerce API keys\n• Disable the chatbot integration\n\nThis action cannot be undone.`;
+            const confirmMessage = `Are you sure you want to remove the integration for "${chatbotName}"?\n\nThis will:\n• Delete the MCP server connection\n• Remove API keys\n• Disable the chatbot integration\n\nThis action cannot be undone.`;
             
             this.showConfirmModal(
                 'Remove Integration',
                 confirmMessage,
                 () => {
                     // Show loading state
-                    const $button = $(e.target);
                     const originalText = $button.text();
                     $button.prop('disabled', true).text('Removing...');
 
@@ -533,9 +646,18 @@ console.log('SCWC: JavaScript file loaded');
                         chatbot_id: chatbotId
                     };
 
+                    console.log('SCWC: Sending delete integration request:', {
+                        url: scwc_ajax.ajax_url,
+                        data: data,
+                        chatbotId: chatbotId,
+                        chatbotName: chatbotName
+                    });
+
                     $.post(scwc_ajax.ajax_url, data)
                         .done((response) => {
+                            console.log('SCWC: Delete integration response received:', response);
                             if (response.success) {
+                                console.log('SCWC: Delete integration successful');
                                 this.showMessage(`Integration for "${chatbotName}" removed successfully!`, 'success');
                                 
                                 // Remove stored MCP server ID
@@ -544,12 +666,31 @@ console.log('SCWC: JavaScript file loaded');
                                 // Reload chatbots to update UI
                                 this.loadChatbots();
                             } else {
+                                console.error('SCWC: Delete integration failed:', response);
                                 this.showMessage(`Failed to remove integration: ${response.data}`, 'error');
                                 $button.prop('disabled', false).text(originalText);
                             }
                         })
-                        .fail(() => {
-                            this.showMessage('Network error. Please try again.', 'error');
+                        .fail((xhr, status, error) => {
+                            console.error('SCWC: Delete integration AJAX failed:', {
+                                xhr: xhr,
+                                status: status,
+                                error: error,
+                                responseText: xhr.responseText,
+                                statusCode: xhr.status
+                            });
+                            let errorMsg = 'Network error. Please try again.';
+                            if (xhr.responseText) {
+                                try {
+                                    const errorData = JSON.parse(xhr.responseText);
+                                    if (errorData.data) {
+                                        errorMsg = 'Server error: ' + errorData.data;
+                                    }
+                                } catch (e) {
+                                    errorMsg = `Server error: ${xhr.status} ${error}`;
+                                }
+                            }
+                            this.showMessage(errorMsg, 'error');
                             $button.prop('disabled', false).text(originalText);
                         });
                 }
@@ -701,6 +842,9 @@ console.log('SCWC: JavaScript file loaded');
             const $button = $(e.target);
             const originalText = $button.html();
             
+            // Clear any existing login state to prevent caching issues
+            this.clearLoginState();
+            
             // Show loading state
             $button.prop('disabled', true).html('<span class="dashicons dashicons-update-alt" style="animation: spin 1s linear infinite; margin-right: 8px;"></span>Connecting...');
             
@@ -712,8 +856,10 @@ console.log('SCWC: JavaScript file loaded');
             $.post(scwc_ajax.ajax_url, data)
                 .done(function(response) {
                     if (response.success && response.data.url) {
-                        // Redirect to Google OAuth URL
-                        window.location.href = response.data.url;
+                        console.log('SCWC: Redirecting to Google OAuth with account selection');
+                        // Add a timestamp to prevent caching and force fresh authentication
+                        const urlWithTimestamp = response.data.url + '&t=' + Date.now();
+                        window.location.href = urlWithTimestamp;
                     } else {
                         SCWC.showAlertModal('Login Error', 'Failed to initiate Google login. Please try again.');
                         $button.prop('disabled', false).html(originalText);
@@ -723,6 +869,25 @@ console.log('SCWC: JavaScript file loaded');
                     SCWC.showAlertModal('Network Error', 'Network error. Please check your connection and try again.');
                     $button.prop('disabled', false).html(originalText);
                 });
+        },
+        
+        clearLoginState: function() {
+            // Clear any cached authentication state
+            console.log('SCWC: Clearing cached login state');
+            
+            // Clear localStorage items that might cache login state
+            if (typeof(Storage) !== "undefined") {
+                localStorage.removeItem('scwc_user_data');
+                localStorage.removeItem('scwc_auth_state');
+                localStorage.removeItem('google_oauth_state');
+            }
+            
+            // Clear sessionStorage as well
+            if (typeof(Storage) !== "undefined") {
+                sessionStorage.removeItem('scwc_user_data');
+                sessionStorage.removeItem('scwc_auth_state');
+                sessionStorage.removeItem('google_oauth_state');
+            }
         },
 
         handleLogout: function(e) {
@@ -870,116 +1035,6 @@ console.log('SCWC: JavaScript file loaded');
                 SCWC.showMessage('Integration refreshed successfully', 'success');
                 SCWC.loadIntegrations();
             }, 2000);
-        },
-
-        handleSaveSettings: function(e) {
-            e.preventDefault();
-            
-            this.showLoading();
-            
-            // Simulate saving settings
-            setTimeout(function() {
-                SCWC.hideLoading();
-                SCWC.showMessage('Settings saved successfully', 'success');
-            }, 1000);
-        },
-
-        loadLogs: function() {
-            const $container = $('#scwc-logs-container');
-            $container.html('<p>Loading logs...</p>');
-            
-            // Simulate loading logs
-            setTimeout(function() {
-                const sampleLogs = [
-                    {
-                        level: 'info',
-                        message: 'Integration created successfully for chatbot: test-bot',
-                        timestamp: new Date().toISOString()
-                    },
-                    {
-                        level: 'warning',
-                        message: 'API key generation took longer than expected',
-                        timestamp: new Date(Date.now() - 300000).toISOString()
-                    },
-                    {
-                        level: 'error',
-                        message: 'Failed to connect to chatbot service',
-                        timestamp: new Date(Date.now() - 600000).toISOString()
-                    }
-                ];
-                
-                let logsHtml = '';
-                sampleLogs.forEach(function(log) {
-                    logsHtml += `
-                        <div class="scwc-log-entry ${log.level}">
-                            <div class="scwc-log-meta">
-                                <span class="scwc-log-level">${log.level.toUpperCase()}</span>
-                                <span class="scwc-log-time">${new Date(log.timestamp).toLocaleString()}</span>
-                            </div>
-                            <div class="scwc-log-message">${log.message}</div>
-                        </div>
-                    `;
-                });
-                
-                if (logsHtml) {
-                    $container.html(logsHtml);
-                } else {
-                    $container.html('<p>No logs found</p>');
-                }
-            }, 1000);
-        },
-
-        clearLogs: function() {
-            this.showConfirmModal(
-                'Clear Logs',
-                'Are you sure you want to clear all logs?',
-                () => {
-                    this.showLoading();
-                    
-                    setTimeout(function() {
-                        SCWC.hideLoading();
-                        SCWC.showMessage('Logs cleared successfully', 'success');
-                        $('#scwc-logs-container').html('<p>No logs found</p>');
-                    }, 1000);
-                }
-            );
-        },
-
-        handleCleanupAll: function() {
-            this.showConfirmModal(
-                'Cleanup All Integrations',
-                'This will delete ALL integrations and their associated data. This action cannot be undone. Are you sure?',
-                () => {
-                    this.showLoading();
-                    
-                    setTimeout(function() {
-                        SCWC.hideLoading();
-                        SCWC.showMessage('All integrations cleaned up successfully', 'success');
-                        SCWC.loadIntegrations();
-                    }, 2000);
-                }
-            );
-        },
-
-        handleResetPlugin: function() {
-            this.showConfirmModal(
-                'Reset Plugin',
-                'This will reset ALL plugin data including settings and login information. This action cannot be undone. Are you sure?',
-                () => {
-                    // Second confirmation
-                    this.showConfirmModal(
-                        'Final Warning',
-                        'This is your final warning. All data will be permanently deleted. Continue?',
-                        () => {
-                            this.showLoading();
-                            
-                            setTimeout(function() {
-                                location.reload();
-                            }, 2000);
-                        }
-                    );
-                }
-            );
         }
     };
 

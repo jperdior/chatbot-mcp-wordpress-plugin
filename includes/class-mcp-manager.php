@@ -65,7 +65,7 @@ class SCWC_MCP_Manager {
             );
             
         } catch (Exception $e) {
-            error_log('SCWC MCP Server Creation Error: ' . $e->getMessage());
+            scwc_debug_log('SCWC MCP Server Creation Error: ' . $e->getMessage());
             return array(
                 'success' => false,
                 'message' => 'An error occurred while creating the MCP server'
@@ -77,11 +77,24 @@ class SCWC_MCP_Manager {
      * Delete a WordPress MCP server
      * 
      * @param string $server_id The MCP server ID to delete
+     * @param string $chatbot_id The chatbot ID that owns the MCP server
      * @return array Result array with success status
      */
-    public function delete_mcp_server($server_id) {
+    public function delete_mcp_server($server_id, $chatbot_id) {
+        scwc_debug_log(' Deleting MCP server - Server ID: ' . $server_id . ', Chatbot ID: ' . $chatbot_id);
+        
+        if (empty($chatbot_id)) {
+            scwc_debug_log(' ERROR: Chatbot ID is required for MCP server deletion');
+            return array(
+                'success' => false,
+                'message' => 'Chatbot ID is required for MCP server deletion'
+            );
+        }
+        
         try {
-            $endpoint = 'mcp-servers/' . $server_id;
+            // Use the proper RESTful endpoint structure
+            $endpoint = 'chatbots/' . $chatbot_id . '/mcp-servers/' . $server_id;
+            scwc_debug_log(' MCP delete endpoint: ' . $endpoint);
             $result = $this->api_manager->make_chatbot_service_request($endpoint, 'DELETE');
             
             if (!$result['success']) {
@@ -97,7 +110,7 @@ class SCWC_MCP_Manager {
             );
             
         } catch (Exception $e) {
-            error_log('SCWC MCP Server Deletion Error: ' . $e->getMessage());
+            scwc_debug_log('SCWC MCP Server Deletion Error: ' . $e->getMessage());
             return array(
                 'success' => false,
                 'message' => 'An error occurred while deleting the MCP server'
@@ -129,7 +142,7 @@ class SCWC_MCP_Manager {
             );
             
         } catch (Exception $e) {
-            error_log('SCWC MCP Server Fetch Error: ' . $e->getMessage());
+            scwc_debug_log('SCWC MCP Server Fetch Error: ' . $e->getMessage());
             return array(
                 'success' => false,
                 'message' => 'An error occurred while fetching the MCP server'
@@ -161,7 +174,7 @@ class SCWC_MCP_Manager {
             );
             
         } catch (Exception $e) {
-            error_log('SCWC MCP Servers List Error: ' . $e->getMessage());
+            scwc_debug_log('SCWC MCP Servers List Error: ' . $e->getMessage());
             return array(
                 'success' => false,
                 'message' => 'An error occurred while listing MCP servers'
@@ -194,7 +207,7 @@ class SCWC_MCP_Manager {
             );
             
         } catch (Exception $e) {
-            error_log('SCWC MCP Server Test Error: ' . $e->getMessage());
+            scwc_debug_log('SCWC MCP Server Test Error: ' . $e->getMessage());
             return array(
                 'success' => false,
                 'message' => 'An error occurred while testing the MCP server'
@@ -226,7 +239,7 @@ class SCWC_MCP_Manager {
             );
             
         } catch (Exception $e) {
-            error_log('SCWC MCP Server Refresh Error: ' . $e->getMessage());
+            scwc_debug_log('SCWC MCP Server Refresh Error: ' . $e->getMessage());
             return array(
                 'success' => false,
                 'message' => 'An error occurred while refreshing the MCP server'
@@ -234,32 +247,6 @@ class SCWC_MCP_Manager {
         }
     }
     
-    /**
-     * Get integration status for a chatbot
-     * 
-     * @param string $chatbot_id The chatbot ID
-     * @return array Integration status information
-     */
-    public function get_integration_status($chatbot_id) {
-        $integration_data = get_option('scwc_integration_' . $chatbot_id);
-        
-        if (!$integration_data) {
-            return array(
-                'integrated' => false,
-                'message' => 'No integration found for this chatbot'
-            );
-        }
-        
-        // Get fresh MCP server status
-        $mcp_status = $this->get_mcp_server($integration_data['mcp_server_id']);
-        
-        return array(
-            'integrated' => true,
-            'integration' => $integration_data,
-            'mcp_server_status' => $mcp_status['success'] ? $mcp_status['data'] : null,
-            'last_updated' => $integration_data['created_at']
-        );
-    }
     
     /**
      * Update integration configuration
@@ -345,5 +332,150 @@ class SCWC_MCP_Manager {
         );
         
         return $requirements;
+    }
+    
+    /**
+     * Get integration status for a chatbot (simple local check)
+     * 
+     * @param string $chatbot_id The chatbot ID
+     * @return array Result array with integration status
+     */
+    public function get_integration_status($chatbot_id) {
+        scwc_debug_log(' Getting integration status for chatbot: ' . $chatbot_id);
+        
+        // Get local integration data
+        $integration_data = get_option('scwc_integration_' . $chatbot_id);
+        
+        if (!$integration_data) {
+            scwc_debug_log(' No local integration data found - not integrated');
+            return array(
+                'is_integrated' => false,
+                'local_exists' => false,
+                'integration_data' => null
+            );
+        }
+        
+        // Check if we have a valid MCP server ID
+        $mcp_server_id = $integration_data['mcp_server_id'] ?? null;
+        if (!$mcp_server_id) {
+            scwc_debug_log(' No MCP server ID in integration data - invalid integration');
+            return array(
+                'is_integrated' => false,
+                'local_exists' => true,
+                'integration_data' => $integration_data,
+                'issue' => 'missing_mcp_server_id'
+            );
+        }
+        
+        scwc_debug_log(' Integration found with MCP server ID: ' . $mcp_server_id);
+        return array(
+            'is_integrated' => true,
+            'local_exists' => true,
+            'integration_data' => $integration_data,
+            'mcp_server_id' => $mcp_server_id
+        );
+    }
+    
+    /**
+     * Sync integration status by cleaning up orphaned local data
+     * 
+     * @param string $chatbot_id The chatbot ID
+     * @return array Result array
+     */
+    public function cleanup_orphaned_integration($chatbot_id) {
+        scwc_debug_log(' Cleaning up orphaned integration for chatbot: ' . $chatbot_id);
+        
+        // Remove local integration data
+        delete_option('scwc_integration_' . $chatbot_id);
+        delete_option('scwc_bubble_enabled_' . $chatbot_id);
+        
+        // Clean up any orphaned API keys
+        $wc_api = new SCWC_WooCommerce_API();
+        $wc_api->cleanup_orphaned_keys($chatbot_id);
+        
+        scwc_debug_log(' Orphaned integration cleaned up');
+        return array(
+            'success' => true,
+            'message' => 'Orphaned integration cleaned up'
+        );
+    }
+    
+    /**
+     * Clean up orphaned MCP servers for a chatbot
+     * 
+     * @param string $chatbot_id The chatbot ID
+     * @return array Result array
+     */
+    public function cleanup_orphaned_servers($chatbot_id) {
+        scwc_debug_log(' Cleaning up orphaned MCP servers for chatbot: ' . $chatbot_id);
+        
+        try {
+            // Get all MCP servers for this chatbot from the service
+            $user_token = get_option('scwc_user_token');
+            if (!$user_token) {
+                scwc_debug_log(' No user token found for orphaned server cleanup');
+                return array(
+                    'success' => false,
+                    'message' => 'User not authenticated'
+                );
+            }
+            
+            $chatbot_service_url = defined('SCWC_CHATBOT_SERVICE_URL') ? SCWC_CHATBOT_SERVICE_URL : 'https://chatbot.supa-chat.com/api/v1';
+            $response = wp_remote_get($chatbot_service_url . '/chatbots/' . $chatbot_id . '/mcp-servers', array(
+                'headers' => array(
+                    'Authorization' => 'Bearer ' . $user_token,
+                    'Content-Type' => 'application/json'
+                ),
+                'timeout' => 30
+            ));
+            
+            if (is_wp_error($response)) {
+                scwc_debug_log(' Failed to get MCP servers: ' . $response->get_error_message());
+                return array(
+                    'success' => false,
+                    'message' => 'Failed to connect to chatbot service'
+                );
+            }
+            
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+            
+            if (!$data || !isset($data['success']) || !$data['success']) {
+                scwc_debug_log(' No MCP servers found or API error');
+                return array(
+                    'success' => true,
+                    'message' => 'No orphaned servers found'
+                );
+            }
+            
+            // Delete each MCP server
+            $cleanup_count = 0;
+            if (isset($data['data']['servers']) && is_array($data['data']['servers'])) {
+                foreach ($data['data']['servers'] as $server) {
+                    if (isset($server['id'])) {
+                        scwc_debug_log(' Deleting orphaned MCP server: ' . $server['id']);
+                        $delete_result = $this->delete_mcp_server($server['id'], $chatbot_id);
+                        scwc_debug_print($delete_result, 'Delete result:');
+                        if ($delete_result['success']) {
+                            $cleanup_count++;
+                        }
+                    }
+                }
+            }
+            
+            scwc_debug_log(" Cleaned up {$cleanup_count} orphaned MCP servers");
+            return array(
+                'success' => true,
+                'message' => "Cleaned up {$cleanup_count} orphaned MCP servers",
+                'cleanup_count' => $cleanup_count
+            );
+            
+        } catch (Exception $e) {
+            scwc_debug_log(' Orphaned server cleanup failed: ' . $e->getMessage());
+            return array(
+                'success' => false,
+                'message' => 'Cleanup failed: ' . $e->getMessage()
+            );
+        }
     }
 }

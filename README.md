@@ -1,26 +1,37 @@
-# SupaChat WooCommerce Integration Plugin
+=== SupaChat ===
+Contributors: supachat
+Tags: chatbot, ai, customer-support, automation, chat
+Requires at least: 5.6
+Tested up to: 6.8
+Requires PHP: 7.4
+Stable tag: 1.0.0
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
-A WordPress plugin that automatically integrates your WooCommerce store with SupaChat AI chatbots. This plugin eliminates the manual process of generating WooCommerce API keys and setting up MCP (Model Context Protocol) servers by automating the entire integration workflow.
+Automatically integrate your site with SupaChat AI chatbots for enhanced customer support.
 
-## Features
+== Description ==
 
-- **🔐 Automatic API Key Generation**: Automatically generates WooCommerce REST API keys with appropriate permissions
+A plugin that automatically integrates your site with SupaChat AI chatbots. This plugin provides seamless integration for enhanced customer support and automated assistance.
+
+== Features ==
+
+- **🔐 Automatic API Integration**: Automatically generates and manages API connections with appropriate permissions
 - **🤖 SupaChat Integration**: Seamless login and integration with your SupaChat account
-- **🔧 MCP Server Management**: Automatically creates and manages WordPress MCP servers in your chatbot service
+- **🔧 MCP Server Management**: Automatically creates and manages MCP servers in your chatbot service
 - **📊 Real-time Status Monitoring**: Monitor the health of your integrations and services
 - **🛡️ Security First**: Secure storage of API keys and proper authentication handling
 - **📱 Responsive Admin Interface**: Modern, user-friendly admin interface that works on all devices
 - **📝 Comprehensive Logging**: Detailed logs for troubleshooting and monitoring
 
-## Requirements
+== Requirements ==
 
-- WordPress 5.6 or higher
+- WordPress 6.8 or higher
 - PHP 7.4 or higher
-- WooCommerce plugin installed and activated
 - SupaChat account
 - Access to SupaChat user and chatbot services
 
-## Installation
+== Installation ==
 
 1. **Download the Plugin**
    ```bash
@@ -30,20 +41,20 @@ A WordPress plugin that automatically integrates your WooCommerce store with Sup
 
 2. **Activate the Plugin**
    - Go to WordPress Admin → Plugins
-   - Find "SupaChat WooCommerce Integration"
+   - Find "SupaChat"
    - Click "Activate"
 
 3. **Configure Services** (if needed)
    - The plugin uses default service URLs for development
    - For production, update the service URLs in the plugin settings
 
-## Usage
+== Usage ==
 
 ### Initial Setup
 
 1. **Access the Plugin**
    - Go to WordPress Admin → SupaChat
-   - You'll see the SupaChat WooCommerce Integration dashboard
+   - You'll see the SupaChat dashboard
 
 2. **Login to SupaChat**
    - Enter your SupaChat account credentials
