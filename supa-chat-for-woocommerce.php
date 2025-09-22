@@ -1,12 +1,12 @@
 <?php
 /*
 Plugin Name: SupaChat
-Plugin URI: https://supa-chat-woocommerce.com
+Plugin URI: https://supa-chat-for-woocommerce.com
 Description: Automatically integrate your site with SupaChat AI chatbots. Provides seamless integration for enhanced customer support.
 Version: 1.0.0
 Author: SupaChat
-Author URI: https://supa-chat-woocommerce.com
-Text Domain: supa-chat-woocommerce
+Author URI: https://supa-chat-for-woocommerce.com
+Text Domain: supa-chat-for-woocommerce
 Requires at least: 5.6
 Requires PHP: 7.4
 License: GPL v2 or later
@@ -84,7 +84,7 @@ class SupaChatWooCommercePlugin {
     public function woocommerce_missing_notice() {
         ?>
         <div class="notice notice-error">
-            <p><?php esc_html_e('SupaChat requires WooCommerce to be installed and active.', 'supa-chat-woocommerce'); ?></p>
+            <p><?php esc_html_e('SupaChat requires WooCommerce to be installed and active.', 'supa-chat-for-woocommerce'); ?></p>
         </div>
         <?php
     }
@@ -121,7 +121,7 @@ class SupaChatWooCommercePlugin {
         add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_scripts'));
         
         // Register shortcode
-        add_shortcode('supa-chat-woocommerce', array($this, 'render_chatbot_shortcode'));
+        add_shortcode('supa-chat-for-woocommerce', array($this, 'render_chatbot_shortcode'));
         
         // Add bubble chat to frontend if enabled
         add_action('wp_footer', array($this, 'add_bubble_chat'));
@@ -129,10 +129,10 @@ class SupaChatWooCommercePlugin {
     
     public function add_admin_menu() {
         add_menu_page(
-            __('SupaChat', 'supa-chat-woocommerce'),
-            __('SupaChat', 'supa-chat-woocommerce'),
+            __('SupaChat', 'supa-chat-for-woocommerce'),
+            __('SupaChat', 'supa-chat-for-woocommerce'),
             'manage_options',
-            'supa-chat-woocommerce',
+            'supa-chat-for-woocommerce',
             array($this, 'admin_page'),
             'data:image/svg+xml;base64,' . base64_encode('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.94-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>'),
             30
@@ -142,8 +142,8 @@ class SupaChatWooCommercePlugin {
     public function enqueue_admin_scripts($hook) {
         scwc_debug_log(' enqueue_admin_scripts called with hook: ' . $hook);
         
-        if ('toplevel_page_supa-chat-woocommerce' !== $hook) {
-            scwc_debug_log(' Hook mismatch, expected toplevel_page_supa-chat-woocommerce, got: ' . $hook);
+        if ('toplevel_page_supa-chat-for-woocommerce' !== $hook) {
+            scwc_debug_log(' Hook mismatch, expected toplevel_page_supa-chat-for-woocommerce, got: ' . $hook);
             return;
         }
         
@@ -157,10 +157,10 @@ class SupaChatWooCommercePlugin {
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('scwc_nonce'),
             'strings' => array(
-                'error' => __('An error occurred. Please try again.', 'supa-chat-woocommerce'),
-                'success' => __('Operation completed successfully.', 'supa-chat-woocommerce'),
-                'loading' => __('Loading...', 'supa-chat-woocommerce'),
-                'confirm_delete' => __('Are you sure you want to delete this integration?', 'supa-chat-woocommerce'),
+                'error' => __('An error occurred. Please try again.', 'supa-chat-for-woocommerce'),
+                'success' => __('Operation completed successfully.', 'supa-chat-for-woocommerce'),
+                'loading' => __('Loading...', 'supa-chat-for-woocommerce'),
+                'confirm_delete' => __('Are you sure you want to delete this integration?', 'supa-chat-for-woocommerce'),
             )
         ));
     }
@@ -331,7 +331,7 @@ class SupaChatWooCommercePlugin {
         
         // Verify we're on the right page
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- OAuth callback, nonce not applicable
-        if (!isset($_GET['page']) || $_GET['page'] !== 'supa-chat-woocommerce') {
+        if (!isset($_GET['page']) || $_GET['page'] !== 'supa-chat-for-woocommerce') {
             return;
         }
         
@@ -339,7 +339,7 @@ class SupaChatWooCommercePlugin {
         // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- OAuth callback, nonce not applicable
         if (!isset($_GET['token'])) {
             // Redirect to admin page with error message
-            $redirect_url = admin_url('admin.php?page=supa-chat-woocommerce&google_login=error&message=' . urlencode('No authentication tokens received'));
+            $redirect_url = admin_url('admin.php?page=supa-chat-for-woocommerce&google_login=error&message=' . urlencode('No authentication tokens received'));
             wp_redirect($redirect_url);
             exit;
         }
@@ -357,12 +357,12 @@ class SupaChatWooCommercePlugin {
         
         if ($result['success']) {
             // Redirect to admin page with success message
-            $redirect_url = admin_url('admin.php?page=supa-chat-woocommerce&google_login=success');
+            $redirect_url = admin_url('admin.php?page=supa-chat-for-woocommerce&google_login=success');
             wp_redirect($redirect_url);
             exit;
         } else {
             // Redirect to admin page with error message
-            $redirect_url = admin_url('admin.php?page=supa-chat-woocommerce&google_login=error&message=' . urlencode($result['message']));
+            $redirect_url = admin_url('admin.php?page=supa-chat-for-woocommerce&google_login=error&message=' . urlencode($result['message']));
         }
         wp_redirect($redirect_url);
         exit;
@@ -487,10 +487,10 @@ class SupaChatWooCommercePlugin {
     
     public function handle_delete_integration() {
         scwc_debug_log('=== DELETE INTEGRATION STARTED ===');
-        scwc_debug_print($_POST, 'POST data received:');
         
         check_ajax_referer('scwc_nonce', 'nonce');
         scwc_debug_log(' Nonce verification passed');
+        scwc_debug_print($_POST, 'POST data received:');
         
         if (!current_user_can('manage_options')) {
             scwc_debug_log(' Permission check failed - user cannot manage options');
@@ -610,10 +610,10 @@ class SupaChatWooCommercePlugin {
             'width' => '100%',
             'height' => '600px',
             'title' => 'SupaChat Assistant'
-        ), $atts, 'supa-chat-woocommerce');
+        ), $atts, 'supa-chat-for-woocommerce');
 
         if (empty($atts['chatbot'])) {
-            return '<p><strong>SupaChat Error:</strong> Chatbot ID is required. Usage: [supa-chat-woocommerce chatbot="your-chatbot-id"]</p>';
+            return '<p><strong>SupaChat Error:</strong> Chatbot ID is required. Usage: [supa-chat-for-woocommerce chatbot="your-chatbot-id"]</p>';
         }
 
         $chatbot_id = esc_attr($atts['chatbot']);
@@ -625,7 +625,7 @@ class SupaChatWooCommercePlugin {
         $iframe_url = "https://chatbot.supa-chat.com/chat/{$chatbot_id}";
 
         return sprintf(
-            '<div class="supa-chat-woocommerce-iframe-container" style="width: %s; height: %s; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
+            '<div class="supa-chat-for-woocommerce-iframe-container" style="width: %s; height: %s; border: 1px solid #ddd; border-radius: 8px; overflow: hidden;">
                 <iframe src="%s" width="100%%" height="100%%" frameborder="0" title="%s" style="border: none;"></iframe>
             </div>',
             $width,
@@ -686,7 +686,7 @@ function scwc_activate_plugin() {
     // Check requirements
     if (!class_exists('WooCommerce')) {
         deactivate_plugins(plugin_basename(__FILE__));
-        wp_die(esc_html__('SupaChat requires WooCommerce to be installed and active.', 'supa-chat-woocommerce'));
+        wp_die(esc_html__('SupaChat requires WooCommerce to be installed and active.', 'supa-chat-for-woocommerce'));
     }
     
     // Create database tables or options if needed

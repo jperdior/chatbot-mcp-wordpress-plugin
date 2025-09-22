@@ -147,6 +147,8 @@ console.log('SCWC: JavaScript file loaded');
                     $loading.hide();
                     if (response.success) {
                         console.log('SCWC: Response successful, chatbots data:', response.data);
+                        // Store chatbots data for bubble status checking
+                        this.currentChatbots = response.data;
                         this.renderChatbots(response.data);
                     } else {
                         console.log('SCWC: Response failed:', response.data);
@@ -537,6 +539,15 @@ console.log('SCWC: JavaScript file loaded');
         },
 
         isBubbleEnabled: function(chatbotId) {
+            // First check if we have chatbot data with server-side bubble status
+            if (this.currentChatbots) {
+                const chatbot = this.currentChatbots.find(c => c.id === chatbotId);
+                if (chatbot && chatbot.integration_status && chatbot.integration_status.bubble_enabled !== undefined) {
+                    return chatbot.integration_status.bubble_enabled;
+                }
+            }
+            
+            // Fallback to localStorage for newly changed values or non-integrated chatbots
             return localStorage.getItem(`scwc_bubble_enabled_${chatbotId}`) === 'true';
         },
 

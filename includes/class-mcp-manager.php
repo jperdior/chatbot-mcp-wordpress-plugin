@@ -368,11 +368,16 @@ class SCWC_MCP_Manager {
         }
         
         scwc_debug_log(' Integration found with MCP server ID: ' . $mcp_server_id);
+        
+        // Get bubble enabled status
+        $bubble_enabled = get_option('scwc_bubble_enabled_' . $chatbot_id, false);
+        
         return array(
             'is_integrated' => true,
             'local_exists' => true,
             'integration_data' => $integration_data,
-            'mcp_server_id' => $mcp_server_id
+            'mcp_server_id' => $mcp_server_id,
+            'bubble_enabled' => $bubble_enabled
         );
     }
     

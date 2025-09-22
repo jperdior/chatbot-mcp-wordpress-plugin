@@ -117,7 +117,7 @@ class SCWC_API_Manager {
      */
     public function get_google_login_url() {
         // Create a special callback URL that will be used by the frontend to redirect back to WordPress
-        $wordpress_callback = admin_url('admin.php?page=supa-chat-woocommerce&google_callback=1');
+        $wordpress_callback = admin_url('admin.php?page=supa-chat-for-woocommerce&google_callback=1');
         
         // The service will redirect to frontend with tokens, and frontend should redirect to WordPress
         // We'll encode the WordPress callback in the redirect parameter
